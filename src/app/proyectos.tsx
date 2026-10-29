@@ -1,10 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import * as SecureStore from "expo-secure-store";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,65 +15,74 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { api } from "../services/api";
 
 interface Proyecto {
-  id: string;
+  Id_proyecto: number;
   nombre: string;
-  horasActuales: number;
-  horasTotales: number;
-  codigo: string;
-  activo: boolean;
+  codigo_acceso: string;
+  horas_asignadas: number;
+  horas_aumentadas: number;
+  horas_registradas: string | number;
+  estado: string;
 }
-
-const PROYECTOS_MOCK: Proyecto[] = [
-  {
-    id: "1",
-    nombre: "Proyecto 1",
-    horasActuales: 25,
-    horasTotales: 75,
-    codigo: "3141",
-    activo: true,
-  },
-  {
-    id: "2",
-    nombre: "Proyecto 2",
-    horasActuales: 0,
-    horasTotales: 50,
-    codigo: "3141",
-    activo: true,
-  },
-  {
-    id: "3",
-    nombre: "Proyecto 3",
-    horasActuales: 0,
-    horasTotales: 50,
-    codigo: "3141",
-    activo: true,
-  },
-];
 
 export default function ProyectosScreen() {
   const router = useRouter();
-  const [busqueda, setBusqueda] = useState("");
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [proyectos, setProyectos] = useState<Proyecto[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [busqueda, setBusqueda] = useState<string>("");
+  const [menuVisible, setMenuVisible] = useState<boolean>(false);
 
-  const proyectosFiltrados = PROYECTOS_MOCK.filter(
+  // Cargar proyectos desde el backend
+  const fetchProyectos = async () => {
+    try {
+      const response = await api.post("/proyectos", {});
+
+      if (response.data && Array.isArray(response.data.proyectos)) {
+        setProyectos(response.data.proyectos);
+      } else {
+        setProyectos([]);
+      }
+    } catch (error: any) {
+      console.error("Error al obtener proyectos:", error);
+      setProyectos([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  // Filtro seguro verificando que proyectos sea un arreglo
+  const proyectosFiltrados = (Array.isArray(proyectos) ? proyectos : []).filter(
     (p) =>
-      p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-      p.codigo.includes(busqueda),
+      p.nombre?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      p.codigo_acceso?.toString().includes(busqueda),
   );
 
+  useEffect(() => {
+    fetchProyectos();
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchProyectos();
+  };
+
   const handlePersonal = () => {
-    // Navegación directa a la pantalla explore
+    setMenuVisible(false);
     router.push("/personal");
   };
-  const handleProyectos = () => {
-    // Navegación directa a la pantalla explore
+
+  const handleProyectos = (proyectoId: number) => {
     router.push("/proyectosPersonal");
   };
-  const handleCerrarSesion = () => {
+
+  const handleCerrarSesion = async () => {
     setMenuVisible(false);
-    router.replace("/"); // Redirige al Login reemplazando el historial
+    await SecureStore.deleteItemAsync("userToken");
+    router.replace("/");
   };
 
   return (
@@ -110,36 +122,67 @@ export default function ProyectosScreen() {
         />
       </View>
 
-      {/* 3. Lista de Proyectos */}
-      <ScrollView
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        {proyectosFiltrados.map((item) => (
-          <Pressable
-            key={item.id}
-            style={styles.card}
-            onPress={handleProyectos}
-          >
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{item.nombre}</Text>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: item.activo ? "#D1FADF" : "#ECECEE" },
-                ]}
-              />
+      {/* 3. Lista de Proyectos o Indicador de Carga */}
+      {loading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#ff4e00" />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={["#ff4e00"]}
+            />
+          }
+        >
+          {proyectosFiltrados.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No se encontraron proyectos.</Text>
             </View>
+          ) : (
+            proyectosFiltrados.map((item) => {
+              const horasTotales =
+                item.horas_asignadas + (item.horas_aumentadas || 0);
 
-            <View style={styles.cardBody}>
-              <Text style={styles.cardText}>
-                Horas: {item.horasActuales}/{item.horasTotales}
-              </Text>
-              <Text style={styles.cardText}>Código: {item.codigo}</Text>
-            </View>
-          </Pressable>
-        ))}
-      </ScrollView>
+              return (
+                <Pressable
+                  key={item.Id_proyecto}
+                  style={styles.card}
+                  onPress={() => handleProyectos(item.Id_proyecto)}
+                >
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle}>{item.nombre}</Text>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor:
+                            item.estado === "En proceso"
+                              ? "#D1FADF"
+                              : "#ffbbbb",
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.cardBody}>
+                    <Text style={styles.cardText}>
+                      Horas: {item.horas_registradas}/{horasTotales}
+                    </Text>
+                    <Text style={styles.cardText}>
+                      Código: {item.codigo_acceso}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </ScrollView>
+      )}
 
       {/* 4. Modal del Menú Lateral */}
       <Modal
@@ -149,7 +192,6 @@ export default function ProyectosScreen() {
         onRequestClose={() => setMenuVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          {/* Cierra el menú al tocar fuera */}
           <Pressable
             style={styles.modalBackdrop}
             onPress={() => setMenuVisible(false)}
@@ -163,7 +205,6 @@ export default function ProyectosScreen() {
               </Pressable>
             </View>
 
-            {/* Opción 1: Proyectos */}
             <Pressable
               style={[styles.menuItem, styles.menuItemActive]}
               onPress={() => setMenuVisible(false)}
@@ -174,7 +215,6 @@ export default function ProyectosScreen() {
               </Text>
             </Pressable>
 
-            {/* Opción 2: Personal */}
             <Pressable style={styles.menuItem} onPress={handlePersonal}>
               <Ionicons name="people-outline" size={22} color="#333" />
               <Text style={styles.menuItemText}>Personal</Text>
@@ -182,7 +222,6 @@ export default function ProyectosScreen() {
 
             <View style={styles.divider} />
 
-            {/* Opción 3: Cerrar sesión */}
             <Pressable style={styles.menuItem} onPress={handleCerrarSesion}>
               <Ionicons name="log-out-outline" size={22} color="#FF3B30" />
               <Text style={[styles.menuItemText, { color: "#FF3B30" }]}>
@@ -240,6 +279,19 @@ const styles = StyleSheet.create({
   searchIcon: {
     marginLeft: 8,
   },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyContainer: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#888888",
+  },
   listContainer: {
     paddingHorizontal: 20,
     paddingBottom: 20,
@@ -250,8 +302,9 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     borderWidth: 1,
     borderColor: "#D2D2D2",
-    padding: 16,
-    gap: 20,
+    padding: 20,
+    paddingBottom: 30,
+    gap: 40,
   },
   cardHeader: {
     flexDirection: "row",
@@ -278,7 +331,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#000000",
   },
-  /* Estilos del Menú Modal */
   modalOverlay: {
     flex: 1,
     flexDirection: "row",
