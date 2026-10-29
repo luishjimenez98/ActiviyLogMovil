@@ -1,6 +1,9 @@
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useState } from "react";
 import {
+  ActivityIndicator, // 1. Importado aquí
+  Alert,
   Image,
   Pressable,
   StyleSheet,
@@ -8,15 +11,41 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { api } from "../services/api";
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
-    // Navegación directa a la pantalla explore
-    router.push("/proyectos");
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Error", "Por favor ingresa correo y contraseña.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await api.post("/auth/login", {
+        Email: email.trim(),
+        Contrasena: password,
+      });
+
+      if (response.data) {
+        const { token } = response.data;
+        await SecureStore.setItemAsync("userToken", token);
+        router.replace("/proyectos"); // 2. Ruta estándar de tu dashboard
+      }
+    } catch (error: any) {
+      const mensajeError =
+        error.response?.data?.error ||
+        "Ocurrió un error al conectar con el servidor.";
+      Alert.alert("Error de Inicio de Sesión", mensajeError);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -30,7 +59,7 @@ export default function LoginScreen() {
 
       {/* Formulario de Login */}
       <View style={styles.formularioContainer}>
-        <Text>Email</Text>
+        <Text style={styles.Text}>Email</Text>
         <TextInput
           style={styles.input}
           placeholder="ejemplo@itecor.com"
@@ -40,7 +69,7 @@ export default function LoginScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        <Text>Password</Text>
+        <Text style={styles.Text}>Password</Text>
         <TextInput
           style={styles.input}
           placeholder="••••••••"
@@ -53,16 +82,25 @@ export default function LoginScreen() {
         />
       </View>
 
-      {/* Botón */}
+      {/* Botón de Login */}
       <View style={[styles.botones, styles.botonesFlexBox]}>
         <Pressable
-          style={[styles.botonLogIn, styles.botonesFlexBox]}
+          style={[
+            styles.botonLogIn,
+            styles.botonesFlexBox,
+            loading && styles.botonDeshabilitado,
+          ]}
           onPress={handleLogin}
+          disabled={loading}
         >
-          <Text style={styles.logIn}>Log in</Text>
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.logIn}>Log in</Text>
+          )}
         </Pressable>
       </View>
-    </View>
+    </View> // 3. Cierre del View principal que faltaba
   );
 }
 
@@ -110,12 +148,16 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     width: "100%",
   },
+  botonDeshabilitado: {
+    opacity: 0.65,
+  },
   logIn: {
     fontSize: 18,
     color: "#fff",
     fontWeight: "bold",
   },
   Text: {
-    fontFamily: "Inter",
+    fontSize: 14,
+    color: "#333333",
   },
 });
