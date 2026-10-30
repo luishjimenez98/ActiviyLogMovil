@@ -1,62 +1,77 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import * as SecureStore from "expo-secure-store";
+import { useEffect, useState } from "react";
 import {
-    Image,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { api } from "../services/api";
 
 interface Personal {
-  id: string;
-  nombre: string;
-  proyecto: number;
+  Id_personal: number;
+  Nombre: string;
+  Apellido_paterno: string;
+  Total_proyectos: number | string;
 }
-
-const PROYECTOS_MOCK: Personal[] = [
-  {
-    id: "1",
-    nombre: "Persona 1",
-    proyecto: 4,
-  },
-  {
-    id: "2",
-    nombre: "Persona 2",
-    proyecto: 4,
-  },
-  {
-    id: "3",
-    nombre: "Persona 4",
-    proyecto: 4,
-  },
-];
 
 export default function PersonalScreen() {
   const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
   const [menuVisible, setMenuVisible] = useState(false);
+  const [persona, setPersonal] = useState<Personal[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  const proyectosFiltrados = PROYECTOS_MOCK.filter((p) =>
-    p.nombre.toLowerCase().includes(busqueda.toLowerCase()),
+  const fetchPersonal = async () => {
+    try {
+      const response = await api.get("/personal");
+
+      if (response.data && Array.isArray(response.data.personal)) {
+        setPersonal(response.data.personal);
+      } else {
+        setPersonal([]);
+      }
+    } catch (error: any) {
+      console.error("Error al obtener proyectos:", error);
+      setPersonal([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const personalFiltrados = (Array.isArray(persona) ? persona : []).filter(
+    (p) =>
+      p.Nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+      p.Apellido_paterno.toLowerCase().includes(busqueda.toLowerCase()),
   );
+  useEffect(() => {
+    fetchPersonal();
+  }, []);
 
   const handleProyectos = () => {
     router.push("/proyectos");
   };
-  const handlePersonal = () => {
+  const handlePersonal = (personal_id: number) => {
     router.push("/personalProyecto");
   };
 
-  const handleCerrarSesion = () => {
+  const handleCerrarSesion = async () => {
     setMenuVisible(false);
-    router.replace("/"); // Redirige al Login reemplazando el historial
+    await SecureStore.deleteItemAsync("userToken");
+    router.replace("/");
   };
+  function NombreCompleto(nombre: string, apellido: string) {
+    return `${nombre} ${apellido}`;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -100,12 +115,20 @@ export default function PersonalScreen() {
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
       >
-        {proyectosFiltrados.map((item) => (
-          <Pressable key={item.id} style={styles.card} onPress={handlePersonal}>
+        {personalFiltrados.map((item) => (
+          <Pressable
+            key={item.Id_personal}
+            style={styles.card}
+            onPress={() => handlePersonal(item.Id_personal)}
+          >
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{item.nombre}</Text>
+              <Text style={styles.cardTitle}>
+                {NombreCompleto(item.Nombre, item.Apellido_paterno)}
+              </Text>
               <View />
-              <Text style={styles.cardText}>{item.proyecto} proyectos</Text>
+              <Text style={styles.cardText}>
+                {item.Total_proyectos} proyectos
+              </Text>
             </View>
           </Pressable>
         ))}
